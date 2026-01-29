@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Облачен График - Шофьори</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 10px; }
+        .container { max-width: 600px; margin: auto; }
+        header { background: #1a73e8; color: white; padding: 20px; text-align: center; border-radius: 10px; margin-bottom: 20px; }
+        .driver-card { 
+            background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-left: 8px solid #1a73e8;
+        }
+        h2 { margin-top: 0; color: #1a73e8; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .field { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #555; font-size: 0.9rem; }
+        select, input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+        .result-box { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 8px; margin-top: 15px; }
+        .comp-alert { color: #d93025; font-weight: bold; }
+        .last-update { font-size: 0.75rem; color: #888; text-align: right; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Диспечерски Контрол</h1>
+        <p>Синхронизация в реално време</p>
+    </header>
+
+    <div id="drivers-app"></div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // 1. ПОСТАВИ ТВОИТЕ ДАННИ ТУК:
+    const firebaseConfig = {
+  apiKey: "AIzaSyCyU3AAknlL83MIjWGkW8nruoedoqAzQvM",
+  authDomain: "drivers-rest.firebaseapp.com",
+  databaseURL: "https://drivers-rest-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "drivers-rest",
+  storageBucket: "drivers-rest.firebasestorage.app",
+  messagingSenderId: "529444101854",
+  appId: "1:529444101854:web:31ac6403eb77786ea6ac4f",
+  measurementId: "G-L641BV1YH6"
+  };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const drivers = ["Шофьор 1", "Шофьор 2", "Шофьор 3", "Шофьор 4"];
+
+    // Генериране на интерфейс
+    const appContainer = document.getElementById('drivers-app');
+    drivers.forEach((name, index) => {
+        const card = document.createElement('div');
+        card.className = 'driver-card';
+        card.innerHTML = `
+            <h2>👤 ${name}</h2>
+            <div class="field">
+                <label>Последна седмична почивка:</label>
+                <select id="type-${index}">
+                    <option value="full">Пълна (45ч+)</option>
+                    <option value="reduced">Съкратена (под 45ч)</option>
+                </select>
+            </div>
+            <div id="comp-ui-${index}" class="field" style="display:none;">
+                <label>Взети часове почивка:</label>
+                <input type="number" id="hours-${index}" placeholder="Напр. 24">
+            </div>
+            <div class="field">
+                <label>Начало на текуща седмица:</label>
+                <input type="datetime-local" id="start-${index}">
+            </div>
+            <div class="result-box" id="res-${index}">Изчакване на синхронизация...</div>
+            <div class="last-update" id="time-${index}">-</div>
+        `;
+        appContainer.appendChild(card);
+
+        // Слушатели за промени (Запис в Firebase)
+        ['type-', 'hours-', 'start-'].forEach(idPrefix => {
+            document.getElementById(idPrefix + index).addEventListener('change', () => saveData(index));
+        });
+    });
+
+    // Функция за запис
+    function saveData(index) {
+        const type = document.getElementById(`type-${index}`).value;
+        const hours = document.getElementById(`hours-${index}`).value;
+        const start = document.getElementById(`start-${index}`).value;
+        
+        set(ref(db, 'drivers/' + index), {
+            type, hours, start,
+            updatedAt: new Date().toLocaleTimeString()
+        });
+    }
+
+    // Слушател за промени в Облака (Четене в реално време)
+    onValue(ref(db, 'drivers/'), (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        for (let index in data) {
+            const d = data[index];
+            const typeEl = document.getElementById(`type-${index}`);
+            const hoursEl = document.getElementById(`hours-${index}`);
+            const startEl = document.getElementById(`start-${index}`);
+            const resEl = document.getElementById(`res-${index}`);
+
+            // Попълване на полетата, ако не сме ние тези, които пишат в момента
+            if(typeEl && d.type) typeEl.value = d.type;
+            if(hoursEl && d.hours) hoursEl.value = d.hours;
+            if(startEl && d.start) startEl.value = d.start;
+
+            document.getElementById(`comp-ui-${index}`).style.display = (d.type === 'reduced') ? 'block' : 'none';
+            document.getElementById(`time-${index}`).innerText = "Последна промяна: " + d.updatedAt;
+
+            // Логика за изчисление
+            if (d.start) {
+                const deadline = new Date(new Date(d.start).getTime() + (144 * 60 * 60 * 1000));
+                let minHours = 45;
+                let compTxt = "";
+
+                if (d.type === 'reduced' && d.hours) {
+                    const diff = 45 - parseFloat(d.hours);
+                    if (diff > 0) {
+                        minHours = 45 + diff;
+                        compTxt = `<br><span class="comp-alert">Трябва компенсация: +${diff}ч.</span>`;
+                    }
+                }
+
+                resEl.innerHTML = `🏁 <strong>Край на седмицата:</strong> ${deadline.toLocaleString('bg-BG')}<br>
+                                   ⏳ <strong>Минимална почивка:</strong> ${minHours} часа ${compTxt}`;
+            }
+        }
+    });
+</script>
+
+</body>
+</html>
