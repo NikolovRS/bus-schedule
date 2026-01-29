@@ -32,12 +32,12 @@
     <div id="drivers-app"></div>
 </div>
 
-<script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-    // 1. ПОСТАВИ ТВОИТЕ ДАННИ ТУК:
-    const firebaseConfig = {
+// 1. КОНФИГУРАЦИЯ (Увери се, че тук са твоите ключове от Firebase)
+    
+const firebaseConfig = {
   apiKey: "AIzaSyCyU3AAknlL83MIjWGkW8nruoedoqAzQvM",
   authDomain: "drivers-rest.firebaseapp.com",
   databaseURL: "https://drivers-rest-default-rtdb.europe-west1.firebasedatabase.app",
@@ -47,109 +47,114 @@
   appId: "1:529444101854:web:31ac6403eb77786ea6ac4f",
   measurementId: "G-L641BV1YH6"
   };
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const drivers = ["Ивчо", "Краси", "Илиян", "Румен"];
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-    const drivers = ["Ивчо", "Краси", "Илиян", "Румен"];
+// 2. ГЕНЕРИРАНЕ НА ИНТЕРФЕЙСА
+const appContainer = document.getElementById('drivers-app');
+drivers.forEach((name, index) => {
+    const card = document.createElement('div');
+    card.className = 'driver-card';
+    card.innerHTML = `
+        <h2>👤 ${name}</h2>
+        <div class="field">
+            <label>Последна седмична почивка:</label>
+            <select id="type-${index}">
+                <option value="full">Пълна (45ч+)</option>
+                <option value="reduced">Съкратена (под 45ч)</option>
+            </select>
+        </div>
+        <div id="comp-ui-${index}" class="field" style="display:none;">
+            <label>Взети часове почивка:</label>
+            <input type="number" id="hours-${index}" placeholder="Напр. 24">
+        </div>
+        <div class="field">
+            <label>Начало на текуща седмица:</label>
+            <input type="datetime-local" id="start-${index}">
+        </div>
+        <div class="result-box" id="res-${index}">Зареждане на данни...</div>
+        <div class="last-update" id="time-${index}">-</div>
+    `;
+    appContainer.appendChild(card);
 
-    // Генериране на интерфейс
-    const appContainer = document.getElementById('drivers-app');
-    drivers.forEach((name, index) => {
-        const card = document.createElement('div');
-        card.className = 'driver-card';
-        card.innerHTML = `
-            <h2>👤 ${name}</h2>
-            <div class="field">
-                <label>Последна седмична почивка:</label>
-                <select id="type-${index}">
-                    <option value="full">Пълна (45ч+)</option>
-                    <option value="reduced">Съкратена (под 45ч)</option>
-                </select>
-            </div>
-            <div id="comp-ui-${index}" class="field" style="display:none;">
-                <label>Взети часове почивка:</label>
-                <input type="number" id="hours-${index}" placeholder="Напр. 24">
-            </div>
-            <div class="field">
-                <label>Начало на текуща седмица:</label>
-                <input type="datetime-local" id="start-${index}">
-            </div>
-            <div class="result-box" id="res-${index}">Изчакване на синхронизация...</div>
-            <div class="last-update" id="time-${index}">-</div>
-        `;
-        appContainer.appendChild(card);
-
-        // Слушатели за промени (Запис в Firebase)
-        ['type-', 'hours-', 'start-'].forEach(idPrefix => {
-            document.getElementById(idPrefix + index).addEventListener('change', () => saveData(index));
-        });
+    // Слушатели за промени (задействат запис)
+    ['type-', 'hours-', 'start-'].forEach(idPrefix => {
+        document.getElementById(idPrefix + index).addEventListener('change', () => saveData(index));
     });
+});
 
-    // Функция за запис
-    function saveData(index) {
-    // Поискай парола само ако не е въведена досега в тази сесия
+// 3. ФУНКЦИЯ ЗА ЗАПИС (С ПАРОЛА)
+async function saveData(index) {
     let sessionKey = sessionStorage.getItem('driver_key');
     
+    // Ако няма записана парола за сесията, я искаме от потребителя
     if (!sessionKey) {
-        sessionKey = prompt("Моля, въведете парола за достъп (само за шофьори):");
+        sessionKey = prompt("Въведете парола за оторизация:");
+        if (!sessionKey) return; 
         sessionStorage.setItem('driver_key', sessionKey);
     }
 
     const data = {
         type: document.getElementById(`type-${index}`).value,
-        hours: document.getElementById(`hours-${index}`).value,
+        hours: document.getElementById(`hours-${index}`).value || 0,
         start: document.getElementById(`start-${index}`).value,
-        updatedAt: new Date().toLocaleTimeString(),
-        secret_key: sessionKey // Изпращаме ключа към Firebase
+        updatedAt: new Date().toLocaleString('bg-BG'),
+        // ТОВА ПОЛЕ Е КЛЮЧОВО ЗА ТВОИТЕ SECURITY RULES
+        secret_key: sessionKey 
     };
-    
-    set(ref(db, 'drivers/' + index), data).catch((error) => {
-        alert("Грешна парола! Не можете да променяте данните.");
-        sessionStorage.removeItem('driver_key');
-    });
+
+    try {
+        await set(ref(db, 'drivers/' + index), data);
+        console.log("Данните са записани успешно!");
+    } catch (error) {
+        alert("Грешка при запис! Паролата е грешна или нямате достъп.");
+        sessionStorage.removeItem('driver_key'); // Изчистваме грешната парола, за да пита пак
+        location.reload(); // Презареждаме за синхрон
+    }
 }
 
+// 4. СЛУШАТЕЛ ЗА ПРОМЕНИ (ЧЕТЕНЕ В РЕАЛНО ВРЕМЕ)
+onValue(ref(db, 'drivers/'), (snapshot) => {
+    const data = snapshot.val();
+    if (!data) return;
 
-    // Слушател за промени в Облака (Четене в реално време)
-    onValue(ref(db, 'drivers/'), (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
+    for (let index in data) {
+        const d = data[index];
+        const resEl = document.getElementById(`res-${index}`);
+        const timeEl = document.getElementById(`time-${index}`);
 
-        for (let index in data) {
-            const d = data[index];
-            const typeEl = document.getElementById(`type-${index}`);
-            const hoursEl = document.getElementById(`hours-${index}`);
-            const startEl = document.getElementById(`start-${index}`);
-            const resEl = document.getElementById(`res-${index}`);
-
-            // Попълване на полетата, ако не сме ние тези, които пишат в момента
-            if(typeEl && d.type) typeEl.value = d.type;
-            if(hoursEl && d.hours) hoursEl.value = d.hours;
-            if(startEl && d.start) startEl.value = d.start;
-
-            document.getElementById(`comp-ui-${index}`).style.display = (d.type === 'reduced') ? 'block' : 'none';
-            document.getElementById(`time-${index}`).innerText = "Последна промяна: " + d.updatedAt;
-
-            // Логика за изчисление
-            if (d.start) {
-                const deadline = new Date(new Date(d.start).getTime() + (144 * 60 * 60 * 1000));
-                let minHours = 45;
-                let compTxt = "";
-
-                if (d.type === 'reduced' && d.hours) {
-                    const diff = 45 - parseFloat(d.hours);
-                    if (diff > 0) {
-                        minHours = 45 + diff;
-                        compTxt = `<br><span class="comp-alert">Трябва компенсация: +${diff}ч.</span>`;
-                    }
-                }
-
-                resEl.innerHTML = `🏁 <strong>Край на седмицата:</strong> ${deadline.toLocaleString('bg-BG')}<br>
-                                   ⏳ <strong>Минимална почивка:</strong> ${minHours} часа ${compTxt}`;
-            }
+        // Актуализираме полетата в интерфейса (ако потребителят не пише в момента)
+        if (!document.activeElement || document.activeElement.id.indexOf(index) === -1) {
+            if(document.getElementById(`type-${index}`)) document.getElementById(`type-${index}`).value = d.type;
+            if(document.getElementById(`hours-${index}`)) document.getElementById(`hours-${index}`).value = d.hours;
+            if(document.getElementById(`start-${index}`)) document.getElementById(`start-${index}`).value = d.start;
         }
-    });
-</script>
+
+        document.getElementById(`comp-ui-${index}`).style.display = (d.type === 'reduced') ? 'block' : 'none';
+        timeEl.innerText = "Последна промяна: " + (d.updatedAt || "-");
+
+        // ПРЕСМЯТАНЕ НА ЛОГИКАТА
+        if (d.start) {
+            const startDate = new Date(d.start);
+            const deadline = new Date(startDate.getTime() + (144 * 60 * 60 * 1000));
+            let minRest = 45;
+            let compTxt = "";
+
+            if (d.type === 'reduced' && d.hours) {
+                const diff = 45 - parseFloat(d.hours);
+                if (diff > 0) {
+                    minRest = 45 + diff;
+                    compTxt = `<br><span style="color: #d93025; font-weight: bold;">+ Компенсация: ${diff}ч.</span>`;
+                }
+            }
+
+            resEl.innerHTML = `🏁 <strong>Срок до:</strong> ${deadline.toLocaleString('bg-BG')}<br>
+                               ⏳ <strong>Следваща почивка:</strong> ${minRest} часа ${compTxt}`;
+        }
+    }
+});
+
 
 </body>
 </html>
