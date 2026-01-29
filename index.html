@@ -87,15 +87,28 @@
 
     // Функция за запис
     function saveData(index) {
-        const type = document.getElementById(`type-${index}`).value;
-        const hours = document.getElementById(`hours-${index}`).value;
-        const start = document.getElementById(`start-${index}`).value;
-        
-        set(ref(db, 'drivers/' + index), {
-            type, hours, start,
-            updatedAt: new Date().toLocaleTimeString()
-        });
+    // Поискай парола само ако не е въведена досега в тази сесия
+    let sessionKey = sessionStorage.getItem('driver_key');
+    
+    if (!sessionKey) {
+        sessionKey = prompt("Моля, въведете парола за достъп (само за шофьори):");
+        sessionStorage.setItem('driver_key', sessionKey);
     }
+
+    const data = {
+        type: document.getElementById(`type-${index}`).value,
+        hours: document.getElementById(`hours-${index}`).value,
+        start: document.getElementById(`start-${index}`).value,
+        updatedAt: new Date().toLocaleTimeString(),
+        secret_key: sessionKey // Изпращаме ключа към Firebase
+    };
+    
+    set(ref(db, 'drivers/' + index), data).catch((error) => {
+        alert("Грешна парола! Не можете да променяте данните.");
+        sessionStorage.removeItem('driver_key');
+    });
+}
+
 
     // Слушател за промени в Облака (Четене в реално време)
     onValue(ref(db, 'drivers/'), (snapshot) => {
